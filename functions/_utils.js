@@ -38,7 +38,6 @@ function verifyToken(token) {
     const secret = process.env.ADMIN_TOKEN_SECRET;
     const [b64, sig] = token.split('.');
     if (!b64 || !sig) return null;
-
     const expectedSig = crypto.createHmac('sha256', secret).update(b64).digest('base64url');
     const sigBuf = Buffer.from(sig);
     const expBuf = Buffer.from(expectedSig);
@@ -46,7 +45,6 @@ function verifyToken(token) {
     if (sigBuf.length !== expBuf.length || !crypto.timingSafeEqual(sigBuf, expBuf)) {
       return null;
     }
-
     const payload = JSON.parse(Buffer.from(b64, 'base64url').toString());
     if (payload.exp && Date.now() > payload.exp) return null; // expired
     return payload;
@@ -55,4 +53,48 @@ function verifyToken(token) {
   }
 }
 
-module.exports = { getSupabase, CORS_HEADERS, jsonResponse, signToken, verifyToken };
+// Rate limiting — calls the check_rate_limit() Postgres function (atomic
+// fixed-window counter, see rate_limits table). Returns true if the request
+// is allowed, false if the caller is over the limit for that key+window.
+// Fails OPEN on any Supabase error (allows the request through) — a rate
+// limiter outage should never take down login/RSVP for everyone.
+async function checkRateLimit(key, limit, windowSeconds) {
+  try {
+    const supabase = getSupabase();
+    const { data, error } = await supabase.rpc('check_rate_limit', {
+      p_key: key,
+      p_limit: limit,
+      p_window_seconds: windowSeconds,
+    });
+    if (error) {
+      console.error('checkRateLimit error (failing open):', error);
+      return true;
+    }
+    return data === true;
+  } catch (e) {
+    console.error('checkRateLimit exception (failing open):', e);
+    return true;
+  }
+}
+
+// Extracts the caller's IP from Netlify's forwarded headers.
+// x-nf-client-connection-ip is Netlify's own header (most reliable);
+// x-forwarded-for is the generic fallback (may contain a comma-separated list).
+function getClientIp(event) {
+  const headers = event.headers || {};
+  return (
+    headers['x-nf-client-connection-ip'] ||
+    (headers['x-forwarded-for'] || '').split(',')[0].trim() ||
+    'unknown'
+  );
+}
+
+module.exports = {
+  getSupabase,
+  CORS_HEADERS,
+  jsonResponse,
+  signToken,
+  verifyToken,
+  checkRateLimit,
+  getClientIp,
+};
