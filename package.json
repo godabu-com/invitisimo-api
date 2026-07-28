@@ -1,0 +1,9 @@
+{
+  "name": "invitisimo-api",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Centralized Netlify Functions API for Invitisimo invite sites (RSVP + admin panel)",
+  "dependencies": {
+    "@supabase/supabase-js": "^2.45.0"
+  }
+}
