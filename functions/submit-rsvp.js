@@ -1,4 +1,4 @@
-const { getSupabase, jsonResponse, CORS_HEADERS } = require('./_utils');
+const { getSupabase, jsonResponse, CORS_HEADERS, checkRateLimit, getClientIp } = require('./_utils');
 
 // POST body (from index.html's RSVP modal):
 // { invite_slug, category, shopify_order_id, full_name, attending,
@@ -35,6 +35,15 @@ exports.handler = async (event) => {
     return jsonResponse(400, { error: 'Lipsesc câmpuri obligatorii (nume)' });
   }
 
+  // Rate limit: 10 submissions / hour per IP — keyed on IP rather than
+  // invite_slug so one family confirming multiple members on the same
+  // invitation link never gets blocked.
+  const ip = getClientIp(event);
+  const allowed = await checkRateLimit(`rsvp:${ip}`, 10, 60 * 60);
+  if (!allowed) {
+    return jsonResponse(429, { error: 'Prea multe confirmări trimise. Încearcă din nou mai târziu.' });
+  }
+
   const supabase = getSupabase();
 
   // Best-effort link back to the parent order (not required for the insert to work).
@@ -64,6 +73,5 @@ exports.handler = async (event) => {
     .single();
 
   if (error) return jsonResponse(500, { error: 'Eroare la salvarea confirmării' });
-
   return jsonResponse(200, { success: true, confirmation: data });
 };
