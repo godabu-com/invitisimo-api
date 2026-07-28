@@ -1,4 +1,4 @@
-const { getSupabase, jsonResponse, CORS_HEADERS, signToken } = require('./_utils');
+const { getSupabase, jsonResponse, CORS_HEADERS, signToken, checkRateLimit } = require('./_utils');
 
 // POST body: { invite_slug, username, password }
 // invite_slug is read client-side from window.location.hostname
@@ -20,8 +20,15 @@ exports.handler = async (event) => {
     return jsonResponse(400, { error: 'Lipsesc invite_slug, username sau password' });
   }
 
-  const supabase = getSupabase();
+  // Rate limit: 10 attempts / 15 min, keyed per invite_slug — stops
+  // brute-forcing a single invitation's admin password without punishing
+  // unrelated invitations sharing the same API.
+  const allowed = await checkRateLimit(`login:${invite_slug}`, 10, 15 * 60);
+  if (!allowed) {
+    return jsonResponse(429, { error: 'Prea multe încercări. Încearcă din nou în câteva minute.' });
+  }
 
+  const supabase = getSupabase();
   const { data: order, error } = await supabase
     .from('orders')
     .select('id, category, admin_username, admin_password, netlify_link')
